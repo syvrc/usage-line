@@ -292,7 +292,8 @@ export const register: Register = on => {
     await update($, isFetching, () => false)
     const u = await $.session.usage()
     await refresh($, u.rateLimits, u.cost?.usd ?? null)
-    if (u.context.apiUsage !== null) await seedReply($)
+    // `tokens` is set once a reply has come back; a brand-new session has none.
+    if (u.context.tokens !== undefined) await seedReply($)
     // Redraw the cache countdown every second.
     $.clock.every(1_000, () => void bumpTick($))
     // Fetch the usage card's numbers now and every minute.

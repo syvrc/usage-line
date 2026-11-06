@@ -1,7 +1,11 @@
 import { expect, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 
-import { buildSegments, cacheSegment, nextBackoff, parseUsage, pressMessage, timeLeft, track, wholePercent } from './register.tsx'
-import type { Segment } from './register.tsx'
+// The test runner has timers; the hooks module's own lib does not declare them.
+declare const setTimeout: (fn: (v?: unknown) => void, ms: number) => unknown
+
+import { buildSegments, cacheSegment, nextBackoff, parseUsage, pressMessage, timeLeft, track, wholePercent } from './register'
+import type { Segment } from './register'
 
 const LIVE_REPLY = JSON.stringify({
   five_hour: { utilization: 38.0, resets_at: '2026-11-06T13:52:00Z' },
@@ -42,7 +46,7 @@ test('the live fetch replaces the figures a reply reported', async ($, on) => {
   on('session.usage', () => ({
     value: {
       startedAt: 0,
-      context: { contextWindow: 200000, apiUsage: null },
+      context: { window: 200000 },
       rateLimits: [
         { kind: 'five_hour', percentUsed: 37, resetsAt: '2026-11-06T13:52:00Z' },
         { kind: 'seven_day', percentUsed: 14, resetsAt: '2026-11-09T16:00:00Z' },
@@ -59,7 +63,7 @@ test('the live fetch replaces the figures a reply reported', async ($, on) => {
     plugin: 'usage-line',
     component: 'AbovePrompt',
     surface: 'desktop',
-    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 },
+    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
   })
   expect(fetched).toEqual(['https://api.anthropic.com/api/oauth/usage'])
   expect((await ui.find({ type: 'Text', text: /5H/ }))?.text).toBe(
@@ -109,7 +113,7 @@ test('a finished reply starts the countdown in the band', async ($, on) => {
   on('ui.status', () => ({ value: undefined }))
   on('turn.complete', () => ({ text: 'done' }))
   on('session.usage', () => ({
-    value: { startedAt: 0, context: { contextWindow: 200000, apiUsage: null }, rateLimits: [], cost: { usd: 1 } },
+    value: { startedAt: 0, context: { window: 200000 }, rateLimits: [], cost: { usd: 1 } },
   }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.turn.complete({ reason: 'answer', answer: 'done', durationMs: 1000, isAborted: false, turnId: 't1' })
@@ -119,7 +123,7 @@ test('a finished reply starts the countdown in the band', async ($, on) => {
     plugin: 'usage-line',
     component: 'AbovePrompt',
     surface: 'desktop',
-    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 },
+    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
   })
   expect((await ui.find({ type: 'Text', text: /⏱/ }))?.text).toBe('5H – | 7D – | ⏱ 42m 00s | $1.00')
   await ui.unmount()
@@ -128,18 +132,18 @@ test('a finished reply starts the countdown in the band', async ($, on) => {
 const USAGE_AFTER_REPLY = (sevenDay: number) => ({
   value: {
     startedAt: 0,
-    context: { contextWindow: 200000, apiUsage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
+    context: { window: 200000, tokens: 2 },
     rateLimits: [{ kind: 'seven_day', percentUsed: sevenDay }],
     cost: { usd: 1 },
   },
 })
 
-const mountBand = ($: Parameters<Parameters<typeof test>[1]>[0]) =>
+const mountBand = ($: Parameters<TestBody>[0]) =>
   $.ui.mount({
     plugin: 'usage-line',
     component: 'AbovePrompt',
     surface: 'desktop',
-    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 },
+    props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
   })
 
 test('a reload after a reply starts the countdown without waiting for the next reply', async ($, on) => {
@@ -187,7 +191,7 @@ test('5H comes first, then 7D, then the cost', () => {
     usd: 1.84,
     at: NOW,
   }
-  const s = buildSegments(f, track(null, f.rateLimits[1]), NOW)
+  const s = buildSegments(f, track(null, f.rateLimits[1]!), NOW)
   expect(text(s)).toBe('5H ●●●●●●···· 59% used (1h 52m) | 7D ●●●●······ 38% used (3d 4h) | $1.84')
 })
 
@@ -248,7 +252,7 @@ test('the band draws above the prompt after session start', async ($, on) => {
   on('session.usage', () => ({
     value: {
       startedAt: 0,
-      context: { contextWindow: 200000, apiUsage: null },
+      context: { window: 200000 },
       rateLimits: [
         { kind: 'five_hour', percentUsed: 59, resetsAt: IN_1H52 },
         { kind: 'seven_day', percentUsed: 38, resetsAt: IN_3D4H },
@@ -263,7 +267,7 @@ test('the band draws above the prompt after session start', async ($, on) => {
       plugin: 'usage-line',
       component: 'AbovePrompt',
       surface,
-      props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 },
+      props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
     })
     expect((await ui.find({ type: 'Text', text: /59% used/ }))?.text).toBe(
       '5H ●●●●●●···· 59% used (1h 52m) | 7D ●●●●······ 38% used (3d 4h) | $1.84',
@@ -276,12 +280,12 @@ const BAND = (surface: 'terminal' | 'desktop') => ({
   plugin: 'usage-line',
   component: 'AbovePrompt' as const,
   surface,
-  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120 },
+  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 })
 
 let toasts: string[] = []
 
-function engine(on: Parameters<Parameters<typeof test>[1]>[1], authorize: () => Promise<void> | void = () => {}) {
+function engine(on: Parameters<TestBody>[1], authorize: () => Promise<void> | void = () => {}) {
   toasts = []
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('clock.now', () => ({ value: Date.parse('2026-11-06T12:00:00Z') }))
@@ -300,7 +304,7 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], authorize: () => 
   on('session.usage', () => ({
     value: {
       startedAt: 0,
-      context: { contextWindow: 200000, apiUsage: null },
+      context: { window: 200000 },
       rateLimits: [{ kind: 'five_hour', percentUsed: 44 }],
       cost: { usd: 2 },
     },
@@ -389,7 +393,7 @@ test('automatic fetches wait out a refusal, while ↻ still fetches at once', as
     return { value: { status: 429, ok: false, headers: {}, text: '' } }
   })
   on('session.usage', () => ({
-    value: { startedAt: 0, context: { contextWindow: 200000, apiUsage: null }, rateLimits: [], cost: { usd: 1 } },
+    value: { startedAt: 0, context: { window: 200000 }, rateLimits: [], cost: { usd: 1 } },
   }))
   const reply = () =>
     $.turn.complete({ reason: 'answer', answer: 'done', durationMs: 1000, isAborted: false, turnId: 't' })
@@ -418,4 +422,20 @@ test('automatic fetches wait out a refusal, while ↻ still fetches at once', as
   await reply()
   await settle()
   expect(urls.length).toBe(3)
+})
+
+test('a brand-new session with no reply yet shows no cache timer', async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('clock.now', () => ({ value: Date.parse('2026-11-06T12:00:00Z') }))
+  on('ui.status', () => ({ value: undefined }))
+  on('fs.write', () => ({ value: undefined }))
+  on('store.delete', () => ({ value: undefined }))
+  on('session.authorize', () => ({ value: null }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200000 }, rateLimits: [], cost: { usd: 0 } },
+  }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const band = await $.ui.mount(BAND('desktop'))
+  expect((await band.find({ type: 'Text', text: /5H/ }))?.text).toBe('5H – | 7D – | $0.00')
+  await band.unmount()
 })
