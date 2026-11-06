@@ -4,7 +4,7 @@ import type { TestBody } from 'claude-code/testing'
 // The test runner has timers; the hooks module's own lib does not declare them.
 declare const setTimeout: (fn: (v?: unknown) => void, ms: number) => unknown
 
-import { buildSegments, cacheSegment, nextBackoff, parseUsage, pressMessage, timeLeft, track, wholePercent } from './register'
+import { buildSegments, cacheSegment, nextBackoff, needsSmallText, parseUsage, pressMessage, stripCells, timeLeft, track, wholePercent } from './register'
 import type { Segment } from './register'
 
 const LIVE_REPLY = JSON.stringify({
@@ -24,7 +24,7 @@ test('the usage service reply is read into 5H and 7D', () => {
 
 test('percentages round up to whole numbers, like the usage card', () => {
   const s = buildSegments({ rateLimits: [{ kind: 'seven_day', percentUsed: 15.4 }], usd: null, at: 0 }, null, 0)
-  expect(s.map(x => x.text).join('')).toBe('5H – | 7D ●●········ 16% used')
+  expect(s.map(x => x.text).join('')).toBe('5H – | 7D ●●········ 16%')
   expect(wholePercent(18.04)).toBe(19)
   expect(wholePercent(18.6)).toBe(19)
   expect(wholePercent(19)).toBe(19)
@@ -67,7 +67,7 @@ test('the live fetch replaces the figures a reply reported', async ($, on) => {
   })
   expect(fetched).toEqual(['https://api.anthropic.com/api/oauth/usage'])
   expect((await ui.find({ type: 'Text', text: /5H/ }))?.text).toBe(
-    '5H ●●●●······ 38% used (1h 52m) | 7D ●●········ 16% used (3d 4h) | $2.00',
+    '5H ●●●●······ 38% (1h 52m) | 7D ●●········ 16% (3d 4h) | $2.00',
   )
   await ui.unmount()
 })
@@ -156,7 +156,7 @@ test('a reload after a reply starts the countdown without waiting for the next r
   now = NOW + 10 * MIN
 
   const ui = await mountBand($)
-  expect((await ui.find({ type: 'Text', text: /⏱/ }))?.text).toBe('5H – | 7D ●········· 14% used | ⏱ 50m 00s | $1.00')
+  expect((await ui.find({ type: 'Text', text: /⏱/ }))?.text).toBe('5H – | 7D ●········· 14% | ⏱ 50m 00s | $1.00')
   await ui.unmount()
 })
 
@@ -172,7 +172,7 @@ test('the 7D figure refreshes at the end of every reply', async ($, on) => {
   await $.turn.complete({ reason: 'answer', answer: 'done', durationMs: 1000, isAborted: false, turnId: 't1' })
 
   const ui = await mountBand($)
-  expect((await ui.find({ type: 'Text', text: /7D/ }))?.text).toContain('15% used')
+  expect((await ui.find({ type: 'Text', text: /7D/ }))?.text).toContain('15%')
   await ui.unmount()
 })
 
@@ -192,7 +192,7 @@ test('5H comes first, then 7D, then the cost', () => {
     at: NOW,
   }
   const s = buildSegments(f, track(null, f.rateLimits[1]!), NOW)
-  expect(text(s)).toBe('5H ●●●●●●···· 59% used (1h 52m) | 7D ●●●●······ 38% used (3d 4h) | $1.84')
+  expect(text(s)).toBe('5H ●●●●●●···· 59% (1h 52m) | 7D ●●●●······ 38% (3d 4h) | $1.84')
 })
 
 test('green under 50, yellow from 50, red from 80', () => {
@@ -205,10 +205,10 @@ test('green under 50, yellow from 50, red from 80', () => {
     at: NOW,
   }
   const s = buildSegments(f, null, NOW)
-  expect(toneOf(s, '85% used')).toBe('error')
-  expect(toneOf(s, '49% used')).toBe('success')
+  expect(toneOf(s, '85%')).toBe('error')
+  expect(toneOf(s, '49%')).toBe('success')
   const y = buildSegments({ ...f, rateLimits: [{ kind: 'five_hour', percentUsed: 50 }] }, null, NOW)
-  expect(toneOf(y, '50% used')).toBe('warning')
+  expect(toneOf(y, '50%')).toBe('warning')
 })
 
 test('no readings yet shows dashes', () => {
@@ -269,8 +269,8 @@ test('the band draws above the prompt after session start', async ($, on) => {
       surface,
       props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
     })
-    expect((await ui.find({ type: 'Text', text: /59% used/ }))?.text).toBe(
-      '5H ●●●●●●···· 59% used (1h 52m) | 7D ●●●●······ 38% used (3d 4h) | $1.84',
+    expect((await ui.find({ type: 'Text', text: /59%/ }))?.text).toBe(
+      '5H ●●●●●●···· 59% (1h 52m) | 7D ●●●●······ 38% (3d 4h) | $1.84',
     )
     await ui.unmount()
   }
@@ -319,7 +319,7 @@ test('the ↻ button sits at the right end of the strip, on every surface', asyn
   await settle()
   for (const surface of ['terminal', 'desktop'] as const) {
     const band = await $.ui.mount(BAND(surface))
-    expect((await band.find({ type: 'Text', text: /5H/ }))?.text).toContain('44% used')
+    expect((await band.find({ type: 'Text', text: /5H/ }))?.text).toContain('44%')
     expect((await band.find({ type: 'Button', key: 'usage-refresh' }))?.text).toBe('↻')
     await band.unmount()
   }
@@ -438,4 +438,56 @@ test('a brand-new session with no reply yet shows no cache timer', async ($, on)
   const band = await $.ui.mount(BAND('desktop'))
   expect((await band.find({ type: 'Text', text: /5H/ }))?.text).toBe('5H – | 7D – | $0.00')
   await band.unmount()
+})
+
+test('the strip text gets smaller only when it would not fit beside ↻', () => {
+  const f = {
+    rateLimits: [
+      { kind: 'five_hour', percentUsed: 10, resetsAt: '2026-11-06T16:27:00Z' },
+      { kind: 'seven_day', percentUsed: 19, resetsAt: '2026-11-09T11:00:00Z' },
+    ],
+    usd: 14.79,
+    at: NOW,
+  }
+  const s = buildSegments(f, null, NOW, { isWorking: true, lastReplyAt: null })
+  expect(text(s)).toBe('5H ●········· 10% (4h 27m) | 7D ●●········ 19% (2d 23h) | ⏱ 60m 00s | $14.79')
+  expect(stripCells(s)).toBe(77)
+  expect(needsSmallText(s, 120)).toBe(false)
+  expect(needsSmallText(s, 81)).toBe(false)
+  expect(needsSmallText(s, 80)).toBe(true)
+})
+
+test('a narrow strip draws smaller and never wraps', async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('clock.now', () => ({ value: NOW }))
+  on('ui.status', () => ({ value: undefined }))
+  on('fs.write', () => ({ value: undefined }))
+  on('store.delete', () => ({ value: undefined }))
+  on('session.authorize', () => ({ value: null }))
+  on('session.usage', () => ({
+    value: {
+      startedAt: 0,
+      context: { window: 200000 },
+      rateLimits: [
+        { kind: 'five_hour', percentUsed: 10, resetsAt: IN_1H52 },
+        { kind: 'seven_day', percentUsed: 19, resetsAt: IN_3D4H },
+      ],
+      cost: { usd: 14.79 },
+    },
+  }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const mount = (bodyColumns: number) =>
+    $.ui.mount({ ...BAND('desktop'), props: { ...BAND('desktop').props, bodyColumns } })
+
+  const wide = await mount(120)
+  const wideText = await wide.find({ type: 'Text', text: /5H/ })
+  expect(wideText?.props?.wrap).toBe('truncate-end')
+  expect(wideText?.props?.size).toBe(undefined)
+  await wide.unmount()
+
+  const narrow = await mount(60)
+  const narrowText = await narrow.find({ type: 'Text', text: /5H/ })
+  expect(narrowText?.props?.wrap).toBe('truncate-end')
+  expect(narrowText?.props?.size).toBe('footnote')
+  await narrow.unmount()
 })

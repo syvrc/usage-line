@@ -78,7 +78,7 @@ function meter(name: string, w: UsageWindow | undefined, now: number): Segment[]
     { text: `${name} `, tone: 'label' },
     { text: '●'.repeat(filled), tone },
     { text: '·'.repeat(DOTS - filled), tone: 'dim' },
-    { text: ` ${pct}% used`, tone },
+    { text: ` ${pct}%`, tone },
     ...(left ? [{ text: ` (${left})`, tone: 'dim' as const }] : []),
   ]
 }
@@ -127,6 +127,21 @@ export function buildSegments(
   if (c) out.push(gap, c)
   if (f.usd !== null) out.push(gap, { text: `$${f.usd.toFixed(2)}`, tone: reasons.length ? 'error' : 'dim' })
   return out
+}
+
+/** Cells the ↻ button and the gap before it take at the strip's right end. */
+const BUTTON_CELLS = 4
+
+/** How many cells the strip's text takes: ⏱ and ⚠ are drawn two cells wide. */
+export function stripCells(segments: Segment[]): number {
+  let cells = 0
+  for (const s of segments) for (const ch of s.text) cells += ch === '⏱' || ch === '⚠' ? 2 : 1
+  return cells
+}
+
+/** True when the strip at full size would not fit on one line beside the ↻. */
+export function needsSmallText(segments: Segment[], bodyColumns: number): boolean {
+  return stripCells(segments) > bodyColumns - BUTTON_CELLS
 }
 
 async function bumpTick($: EngineInterface) {
@@ -329,11 +344,14 @@ export const register: Register = on => {
     const fetching = await read($, isFetching)
     const { Box, Button, Text } = $.ui.resolve(e)
     const segments = buildSegments(f, t, await $.clock.now(), { isWorking: e.props.isWorking, lastReplyAt: last })
+    const isSmall = needsSmallText(segments, e.props.bodyColumns)
 
+    // Never two lines: smaller text when the strip would not fit, and a cut
+    // with "…" as the last resort (the terminal has one text size).
     return (
       <Box flexDirection="row" width="100%" alignItems="center">
         <Box flexGrow={1} flexShrink={1}>
-          <Text mono tabular>
+          <Text mono tabular wrap="truncate-end" {...(isSmall ? { size: 'footnote' as const } : {})}>
             {segments.map(s =>
               s.tone === 'label' ? (
                 <Text weight="bold">{s.text}</Text>

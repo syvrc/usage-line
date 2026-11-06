@@ -3,7 +3,7 @@
 A Claude Code mod that puts one strip above the prompt box:
 
 ```
-5H ●●●●······ 38% used (1h 52m) | 7D ●●········ 15% used (3d 4h) | ⏱ 42m 05s | $1.84        ↻
+5H ●●●●······ 38% (1h 52m) | 7D ●●········ 15% (3d 4h) | ⏱ 42m 05s | $1.84        ↻
 ```
 
 - **5H**: how much of your 5-hour limit is used, and the time until it resets.
@@ -12,7 +12,7 @@ A Claude Code mod that puts one strip above the prompt box:
 - **$**: what this session has cost so far.
 - **↻** (at the right end): fetches the latest usage right away instead of waiting for the next one-minute fetch. It turns bright while fetching, and a short message says whether it worked.
 
-Colors: the meters are green under 50% used, yellow from 50%, and red from 80%. The cache timer is green, then yellow under 15 minutes, then red under 5 minutes and when cold.
+Colors: the meters are green under 50%, yellow from 50%, and red from 80%. The cache timer is green, then yellow under 15 minutes, then red under 5 minutes and when cold.
 
 **Expensive-session warning:** when a session costs more than $20, or uses 30% of your 5-hour limit by itself, the strip starts with a red `⚠ over $20` (or `⚠ used 31% of 5h`).
 
