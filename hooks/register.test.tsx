@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { buildSegments, cacheSegment, nextBackoff, parseUsage, pressMessage, timeLeft, track } from './register.tsx'
+import { buildSegments, cacheSegment, nextBackoff, parseUsage, pressMessage, timeLeft, track, wholePercent } from './register.tsx'
 import type { Segment } from './register.tsx'
 
 const LIVE_REPLY = JSON.stringify({
@@ -18,9 +18,14 @@ test('the usage service reply is read into 5H and 7D', () => {
   expect(parseUsage('{"other":1}')).toBe(null)
 })
 
-test('percentages show as whole numbers, like the usage card', () => {
+test('percentages round up to whole numbers, like the usage card', () => {
   const s = buildSegments({ rateLimits: [{ kind: 'seven_day', percentUsed: 15.4 }], usd: null, at: 0 }, null, 0)
-  expect(s.map(x => x.text).join('')).toBe('5H – | 7D ●●········ 15% used')
+  expect(s.map(x => x.text).join('')).toBe('5H – | 7D ●●········ 16% used')
+  expect(wholePercent(18.04)).toBe(19)
+  expect(wholePercent(18.6)).toBe(19)
+  expect(wholePercent(19)).toBe(19)
+  expect(wholePercent(19.000000001)).toBe(19)
+  expect(wholePercent(0)).toBe(0)
 })
 
 test('the live fetch replaces the figures a reply reported', async ($, on) => {
@@ -58,7 +63,7 @@ test('the live fetch replaces the figures a reply reported', async ($, on) => {
   })
   expect(fetched).toEqual(['https://api.anthropic.com/api/oauth/usage'])
   expect((await ui.find({ type: 'Text', text: /5H/ }))?.text).toBe(
-    '5H ●●●●······ 38% used (1h 52m) | 7D ●●········ 15% used (3d 4h) | $2.00',
+    '5H ●●●●······ 38% used (1h 52m) | 7D ●●········ 16% used (3d 4h) | $2.00',
   )
   await ui.unmount()
 })

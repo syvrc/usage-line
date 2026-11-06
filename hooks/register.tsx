@@ -62,9 +62,15 @@ export function track(prev: FiveHourTrack | null, w: UsageWindow): FiveHourTrack
   return { ...prev, windowResetsAt: windowResetsAt ?? prev.windowResetsAt, last: w.percentUsed }
 }
 
+/** A whole percent rounded up, as the app's usage card shows it: 18.3 → 19, 18 → 18. */
+export function wholePercent(percentUsed: number): number {
+  // The small allowance keeps float noise (19.000000001) from tipping into 20.
+  return Math.max(0, Math.ceil(percentUsed - 1e-6))
+}
+
 function meter(name: string, w: UsageWindow | undefined, now: number): Segment[] {
   if (!w) return [{ text: name, tone: 'label' }, { text: ' –', tone: 'dim' }]
-  const pct = Math.round(w.percentUsed)
+  const pct = wholePercent(w.percentUsed)
   const tone = toneFor(pct)
   const filled = Math.min(DOTS, Math.max(0, Math.round(pct / (100 / DOTS))))
   const left = timeLeft(w.resetsAt, now)
@@ -181,7 +187,8 @@ export function parseUsage(text: string): UsageWindow[] | null {
     if (typeof utilization !== 'number') continue
     out.push({
       kind,
-      percentUsed: Math.round(utilization * 10) / 10,
+      // Kept unrounded: rounding happens once, at display time (wholePercent).
+      percentUsed: utilization,
       ...(typeof resets_at === 'string' ? { resetsAt: resets_at } : {}),
     })
   }
