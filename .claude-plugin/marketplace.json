@@ -1,0 +1,5 @@
+{
+  "name": "usage-line",
+  "owner": { "name": "syvrc" },
+  "plugins": [{ "name": "usage-line", "source": "./" }]
+}
