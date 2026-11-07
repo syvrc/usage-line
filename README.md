@@ -14,7 +14,7 @@ A Claude Code mod that puts one strip above the prompt box:
 
 Colors: the meters are green under 50%, yellow from 50%, and red from 80%. The cache timer is green, then yellow under 15 minutes, then red under 5 minutes and when cold.
 
-**Expensive-session warning:** when a session costs more than $20, or uses 30% of your 5-hour limit by itself, the strip starts with a red `⚠ over $20` (or `⚠ used 31% of 5h`).
+**Expensive-session warning:** when a session costs more than $20, a red ⚠ appears right before the cost, and the cost turns red: `… | ⏱ 59m 21s | ⚠ $21.91`. The ⚠ and ↻ are drawn a size larger than the rest of the strip.
 
 The 5H and 7D figures are fetched from your account's usage once a minute, so they match the usage card in the app. They need a Claude subscription login; with an API key they show `–`.
 
@@ -38,7 +38,7 @@ In the Claude desktop app, where `/plugin` doesn't run: click **+** next to the 
 
 ## Change the limits
 
-The thresholds are at the top of `hooks/register.tsx`: `MAX_SESSION_USD` (20), `MAX_SESSION_FIVE_HOUR_POINTS` (30), the meter colors (`YELLOW_AT`, `RED_AT`) and the cache length (`CACHE_TTL_MS`, 60 minutes).
+The thresholds are at the top of `hooks/register.tsx`: `MAX_SESSION_USD` (20), the meter colors (`YELLOW_AT`, `RED_AT`) and the cache length (`CACHE_TTL_MS`, 60 minutes).
 
 ## Notes
 

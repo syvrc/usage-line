@@ -1,11 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { FiveHourTrack, UsageFigures, UsageWindow } from '../types'
+import type { UsageFigures, UsageWindow } from '../types'
 
-/** A session counts as expensive past either of these, whichever comes first. */
+/** A session counts as expensive once it costs this much. */
 export const MAX_SESSION_USD = 20
-export const MAX_SESSION_FIVE_HOUR_POINTS = 30
 
 /** Meter colors: green below YELLOW_AT, yellow below RED_AT, red from there. */
 const YELLOW_AT = 50
@@ -18,7 +17,6 @@ export const CACHE_TTL_MS = 60 * 60 * 1000
 const CACHE_YELLOW_MS = 15 * 60 * 1000
 const CACHE_RED_MS = 5 * 60 * 1000
 
-const fiveHour = atom({ plugin: 'usage-line', key: 'fiveHour' } as const, null)
 const figures = atom({ plugin: 'usage-line', key: 'figures' } as const, null)
 const lastReplyAt = atom({ plugin: 'usage-line', key: 'lastReplyAt' } as const, null)
 const tick = atom({ plugin: 'usage-line', key: 'tick' } as const, 0)
@@ -27,7 +25,8 @@ const isFetching = atom({ plugin: 'usage-line', key: 'isFetching' } as const, fa
 export type CacheState = { isWorking: boolean; lastReplyAt: number | null }
 
 export type Tone = 'label' | 'dim' | 'success' | 'warning' | 'error'
-export type Segment = { text: string; tone: Tone }
+/** One run of the strip; `isIcon` draws it a size larger (the ⚠). */
+export type Segment = { text: string; tone: Tone; isIcon?: true }
 
 const toneFor = (pct: number): Tone => (pct >= RED_AT ? 'error' : pct >= YELLOW_AT ? 'warning' : 'success')
 
@@ -43,23 +42,6 @@ export function timeLeft(iso: string | undefined, now: number): string | null {
   if (d > 0) return `${d}d ${h}h`
   if (h > 0) return `${h}h ${m}m`
   return `${m}m`
-}
-
-const used = (t: FiveHourTrack) => Math.max(0, t.last - t.baseline)
-
-/** Moves this session's 5-hour share forward with a new reading. */
-export function track(prev: FiveHourTrack | null, w: UsageWindow): FiveHourTrack {
-  const windowResetsAt = w.resetsAt ?? null
-  if (!prev) return { windowResetsAt, baseline: w.percentUsed, last: w.percentUsed, carried: 0 }
-  const isNewWindow =
-    (windowResetsAt !== null && prev.windowResetsAt !== null && windowResetsAt !== prev.windowResetsAt) ||
-    w.percentUsed < prev.last - 1
-  if (isNewWindow) {
-    // Bank what this session used in the old window; the new window's first
-    // reading is the baseline, so other sessions' use in it isn't counted.
-    return { windowResetsAt, baseline: w.percentUsed, last: w.percentUsed, carried: prev.carried + used(prev) }
-  }
-  return { ...prev, windowResetsAt: windowResetsAt ?? prev.windowResetsAt, last: w.percentUsed }
 }
 
 /** A whole percent rounded up, as the app's usage card shows it: 18.3 → 19, 18 → 18. */
@@ -99,33 +81,30 @@ export function cacheSegment(c: CacheState, now: number): Segment | null {
   return { text: `⏱ ${minSec(left)}`, tone }
 }
 
-/** Why this session counts as expensive: "over $20", "used 31% of 5h"; empty when it doesn't. */
-export function expensiveReasons(f: UsageFigures, t: FiveHourTrack | null): string[] {
-  const points = t ? Math.round((t.carried + used(t)) * 10) / 10 : 0
-  const reasons: string[] = []
-  if (f.usd !== null && f.usd >= MAX_SESSION_USD) reasons.push(`over $${MAX_SESSION_USD}`)
-  if (points >= MAX_SESSION_FIVE_HOUR_POINTS) reasons.push(`used ${points}% of 5h`)
-  return reasons
+/** True once this session costs more than MAX_SESSION_USD. */
+export function isExpensive(f: UsageFigures): boolean {
+  return f.usd !== null && f.usd >= MAX_SESSION_USD
 }
 
-/** The band's runs, left to right: warning, 5H, 7D, cache, cost. */
+/** The band's runs, left to right: 5H, 7D, cache, then the cost (with ⚠ when expensive). */
 export function buildSegments(
   f: UsageFigures,
-  t: FiveHourTrack | null,
   now: number,
   cache: CacheState = { isWorking: false, lastReplyAt: null },
 ): Segment[] {
   const five = f.rateLimits.find(r => r.kind === 'five_hour')
   const week = f.rateLimits.find(r => r.kind === 'seven_day')
-  const reasons = expensiveReasons(f, t)
 
   const gap: Segment = { text: ' | ', tone: 'dim' }
-  const out: Segment[] = []
-  if (reasons.length) out.push({ text: `⚠ ${reasons.join(', ')}`, tone: 'error' }, gap)
-  out.push(...meter('5H', five, now), gap, ...meter('7D', week, now))
+  const out: Segment[] = [...meter('5H', five, now), gap, ...meter('7D', week, now)]
   const c = cacheSegment(cache, now)
   if (c) out.push(gap, c)
-  if (f.usd !== null) out.push(gap, { text: `$${f.usd.toFixed(2)}`, tone: reasons.length ? 'error' : 'dim' })
+  if (f.usd !== null) {
+    const cost = `$${f.usd.toFixed(2)}`
+    out.push(gap)
+    if (isExpensive(f)) out.push({ text: '⚠', tone: 'error', isIcon: true }, { text: ` ${cost}`, tone: 'error' })
+    else out.push({ text: cost, tone: 'dim' })
+  }
   return out
 }
 
@@ -217,8 +196,6 @@ async function refresh($: EngineInterface, rateLimits: UsageWindow[], usd: numbe
   const liveAt = prev?.liveAt ?? null
   const isLiveFresh = liveAt !== null && at - liveAt < LIVE_FRESH_MS
   const limits = isLiveFresh && prev ? prev.rateLimits : rateLimits.map(r => ({ ...r }))
-  const five = limits.find(r => r.kind === 'five_hour')
-  if (five && !isLiveFresh) await update($, fiveHour, p => track(p, five))
   await update($, figures, () => ({ rateLimits: limits, usd, at, liveAt }))
 }
 
@@ -250,8 +227,6 @@ async function poll($: EngineInterface): Promise<string> {
   if (live === null) return 'reply had no five_hour or seven_day'
 
   const at = await $.clock.now()
-  const five = live.find(r => r.kind === 'five_hour')
-  if (five) await update($, fiveHour, p => track(p, five))
   await update($, figures, prev => ({ rateLimits: live, usd: prev?.usd ?? null, at, liveAt: at }))
   return 'ok'
 }
@@ -338,13 +313,14 @@ export const register: Register = on => {
     const f = await read($, figures)
     if (e.props.hasSurvey || f === null) return next(e)
 
-    const t = await read($, fiveHour)
     const last = await read($, lastReplyAt)
     await read($, tick) // subscribes this drawing to the countdown timer
     const fetching = await read($, isFetching)
     const { Box, Button, Text } = $.ui.resolve(e)
-    const segments = buildSegments(f, t, await $.clock.now(), { isWorking: e.props.isWorking, lastReplyAt: last })
+    const segments = buildSegments(f, await $.clock.now(), { isWorking: e.props.isWorking, lastReplyAt: last })
     const isSmall = needsSmallText(segments, e.props.bodyColumns)
+    // The ⚠ and ↻ draw one size step above the strip's text (about 30% larger).
+    const iconSize = isSmall ? ('body' as const) : ('heading' as const)
 
     // Never two lines: smaller text when the strip would not fit, and a cut
     // with "…" as the last resort (the terminal has one text size).
@@ -353,7 +329,11 @@ export const register: Register = on => {
         <Box flexGrow={1} flexShrink={1}>
           <Text mono tabular wrap="truncate-end" {...(isSmall ? { size: 'footnote' as const } : {})}>
             {segments.map(s =>
-              s.tone === 'label' ? (
+              s.isIcon ? (
+                <Text color={s.tone} size={iconSize}>
+                  {s.text}
+                </Text>
+              ) : s.tone === 'label' ? (
                 <Text weight="bold">{s.text}</Text>
               ) : s.tone === 'dim' ? (
                 <Text dimColor>{s.text}</Text>
@@ -364,7 +344,9 @@ export const register: Register = on => {
           </Text>
         </Box>
         {/* The same icon in the same place; it only turns bright while fetching. */}
-        <Button key="usage-refresh" label="↻" plain dimColor={!fetching} onPress={() => refreshNow($)} />
+        <Button key="usage-refresh" plain dimColor={!fetching} onPress={() => refreshNow($)}>
+          <Text size={iconSize}>↻</Text>
+        </Button>
       </Box>
     )
   })

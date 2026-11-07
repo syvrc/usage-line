@@ -4,7 +4,7 @@ import type { TestBody } from 'claude-code/testing'
 // The test runner has timers; the hooks module's own lib does not declare them.
 declare const setTimeout: (fn: (v?: unknown) => void, ms: number) => unknown
 
-import { buildSegments, cacheSegment, nextBackoff, needsSmallText, parseUsage, pressMessage, stripCells, timeLeft, track, wholePercent } from './register'
+import { buildSegments, cacheSegment, nextBackoff, needsSmallText, parseUsage, pressMessage, stripCells, timeLeft, wholePercent } from './register'
 import type { Segment } from './register'
 
 const LIVE_REPLY = JSON.stringify({
@@ -23,7 +23,7 @@ test('the usage service reply is read into 5H and 7D', () => {
 })
 
 test('percentages round up to whole numbers, like the usage card', () => {
-  const s = buildSegments({ rateLimits: [{ kind: 'seven_day', percentUsed: 15.4 }], usd: null, at: 0 }, null, 0)
+  const s = buildSegments({ rateLimits: [{ kind: 'seven_day', percentUsed: 15.4 }], usd: null, at: 0 }, 0)
   expect(s.map(x => x.text).join('')).toBe('5H – | 7D ●●········ 16%')
   expect(wholePercent(18.04)).toBe(19)
   expect(wholePercent(18.6)).toBe(19)
@@ -102,7 +102,7 @@ test('cache countdown is frozen at the full hour while replying, hidden before a
 })
 
 test('the cache timer goes second last, before the cost', () => {
-  const s = buildSegments({ rateLimits: [], usd: 1.84, at: NOW }, null, NOW, { isWorking: false, lastReplyAt: NOW - 18 * MIN })
+  const s = buildSegments({ rateLimits: [], usd: 1.84, at: NOW }, NOW, { isWorking: false, lastReplyAt: NOW - 18 * MIN })
   expect(text(s)).toBe('5H – | 7D – | ⏱ 42m 00s | $1.84')
 })
 
@@ -191,7 +191,7 @@ test('5H comes first, then 7D, then the cost', () => {
     usd: 1.84,
     at: NOW,
   }
-  const s = buildSegments(f, track(null, f.rateLimits[1]!), NOW)
+  const s = buildSegments(f, NOW)
   expect(text(s)).toBe('5H ●●●●●●···· 59% (1h 52m) | 7D ●●●●······ 38% (3d 4h) | $1.84')
 })
 
@@ -204,45 +204,30 @@ test('green under 50, yellow from 50, red from 80', () => {
     usd: null,
     at: NOW,
   }
-  const s = buildSegments(f, null, NOW)
+  const s = buildSegments(f, NOW)
   expect(toneOf(s, '85%')).toBe('error')
   expect(toneOf(s, '49%')).toBe('success')
-  const y = buildSegments({ ...f, rateLimits: [{ kind: 'five_hour', percentUsed: 50 }] }, null, NOW)
+  const y = buildSegments({ ...f, rateLimits: [{ kind: 'five_hour', percentUsed: 50 }] }, NOW)
   expect(toneOf(y, '50%')).toBe('warning')
 })
 
 test('no readings yet shows dashes', () => {
-  expect(text(buildSegments({ rateLimits: [], usd: 0, at: NOW }, null, NOW))).toBe('5H – | 7D – | $0.00')
+  expect(text(buildSegments({ rateLimits: [], usd: 0, at: NOW }, NOW))).toBe('5H – | 7D – | $0.00')
 })
 
-test('passing $20 puts the warning first, no parentheses', () => {
-  const s = buildSegments({ rateLimits: [], usd: 21.3, at: NOW }, null, NOW)
-  expect(text(s).startsWith('⚠ over $20 | 5H')).toBe(true)
-  expect(toneOf(s, '$21.30')).toBe('error')
+test('passing $20 puts a red ⚠ right before the cost, at the end', () => {
+  const s = buildSegments({ rateLimits: [], usd: 21.91, at: NOW }, NOW)
+  expect(text(s)).toBe('5H – | 7D – | ⚠ $21.91')
+  const icon = s.find(x => x.text === '⚠')
+  expect(icon?.isIcon).toBe(true)
+  expect(icon?.tone).toBe('error')
+  expect(toneOf(s, '$21.91')).toBe('error')
 })
 
-test('30 points of the 5-hour limit used by this session warns', () => {
-  let t = track(null, { kind: 'five_hour', percentUsed: 10 })
-  t = track(t, { kind: 'five_hour', percentUsed: 39 })
-  const f = (pct: number) => ({ rateLimits: [{ kind: 'five_hour', percentUsed: pct }], usd: 3, at: NOW })
-  expect(text(buildSegments(f(39), t, NOW)).startsWith('5H')).toBe(true)
-  t = track(t, { kind: 'five_hour', percentUsed: 40 })
-  expect(text(buildSegments(f(40), t, NOW)).startsWith('⚠ used 30% of 5h | 5H')).toBe(true)
-})
-
-test('usage carries across a 5-hour reset', () => {
-  let t = track(null, { kind: 'five_hour', percentUsed: 60, resetsAt: IN_1H52 })
-  t = track(t, { kind: 'five_hour', percentUsed: 80, resetsAt: IN_1H52 })
-  t = track(t, { kind: 'five_hour', percentUsed: 2, resetsAt: '2026-11-06T18:52:00Z' })
-  t = track(t, { kind: 'five_hour', percentUsed: 12, resetsAt: '2026-11-06T18:52:00Z' })
-  expect(t.carried + (t.last - t.baseline)).toBe(30)
-})
-
-test('both reasons show together', () => {
-  let t = track(null, { kind: 'five_hour', percentUsed: 0 })
-  t = track(t, { kind: 'five_hour', percentUsed: 35 })
-  const s = buildSegments({ rateLimits: [{ kind: 'five_hour', percentUsed: 35 }], usd: 25, at: NOW }, t, NOW)
-  expect(text(s).startsWith('⚠ over $20, used 35% of 5h | 5H')).toBe(true)
+test('under $20 there is no ⚠ and the cost stays dim', () => {
+  const s = buildSegments({ rateLimits: [{ kind: 'five_hour', percentUsed: 95 }], usd: 19.99, at: NOW }, NOW)
+  expect(text(s)).toBe('5H ●●●●●●●●●● 95% | 7D – | $19.99')
+  expect(toneOf(s, '$19.99')).toBe('dim')
 })
 
 test('the band draws above the prompt after session start', async ($, on) => {
@@ -449,7 +434,7 @@ test('the strip text gets smaller only when it would not fit beside ↻', () => 
     usd: 14.79,
     at: NOW,
   }
-  const s = buildSegments(f, null, NOW, { isWorking: true, lastReplyAt: null })
+  const s = buildSegments(f, NOW, { isWorking: true, lastReplyAt: null })
   expect(text(s)).toBe('5H ●········· 10% (4h 27m) | 7D ●●········ 19% (2d 23h) | ⏱ 60m 00s | $14.79')
   expect(stripCells(s)).toBe(77)
   expect(needsSmallText(s, 120)).toBe(false)
@@ -489,5 +474,30 @@ test('a narrow strip draws smaller and never wraps', async ($, on) => {
   const narrowText = await narrow.find({ type: 'Text', text: /5H/ })
   expect(narrowText?.props?.wrap).toBe('truncate-end')
   expect(narrowText?.props?.size).toBe('footnote')
+  await narrow.unmount()
+})
+
+test('⚠ and ↻ draw one size larger than the strip text', async ($, on) => {
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('clock.now', () => ({ value: NOW }))
+  on('ui.status', () => ({ value: undefined }))
+  on('fs.write', () => ({ value: undefined }))
+  on('store.delete', () => ({ value: undefined }))
+  on('session.authorize', () => ({ value: null }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200000 }, rateLimits: [], cost: { usd: 21.91 } },
+  }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const mount = (bodyColumns: number) =>
+    $.ui.mount({ ...BAND('desktop'), props: { ...BAND('desktop').props, bodyColumns } })
+
+  const wide = await mount(120)
+  expect((await wide.find({ type: 'Text', text: /^⚠$/ }))?.props?.size).toBe('heading')
+  expect((await wide.find({ type: 'Text', text: /^↻$/ }))?.props?.size).toBe('heading')
+  await wide.unmount()
+
+  const narrow = await mount(20)
+  expect((await narrow.find({ type: 'Text', text: /^⚠$/ }))?.props?.size).toBe('body')
+  expect((await narrow.find({ type: 'Text', text: /^↻$/ }))?.props?.size).toBe('body')
   await narrow.unmount()
 })
