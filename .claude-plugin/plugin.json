@@ -1,6 +1,6 @@
 {
   "name": "usage-line",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A strip above the prompt with your 5-hour and weekly usage, a prompt-cache countdown and this session's cost; warns when a session gets expensive",
   "author": { "name": "syvrc" },
   "license": "MIT",

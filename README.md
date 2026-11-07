@@ -36,6 +36,17 @@ claude plugin install usage-line --marketplace syvrc/usage-line
 
 In the Claude desktop app, where `/plugin` doesn't run: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `syvrc/usage-line`, then **Add plugin**.
 
+## Update
+
+Already installed? Get the latest version from a shell:
+
+```bash
+claude plugin marketplace update usage-line
+claude plugin update usage-line@usage-line
+```
+
+Then type `/reload-plugins` in any open session, or restart it. `claude plugin list` shows the version you have.
+
 ## Change the limits
 
 The thresholds are at the top of `hooks/register.tsx`: `MAX_SESSION_USD` (20), the meter colors (`YELLOW_AT`, `RED_AT`) and the cache length (`CACHE_TTL_MS`, 60 minutes).
