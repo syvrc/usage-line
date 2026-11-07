@@ -38,14 +38,23 @@ In the Claude desktop app, where `/plugin` doesn't run: click **+** next to the 
 
 ## Update
 
-Already installed? Get the latest version from a shell:
+Already installed? Get the latest version from a shell, running these in order:
 
-```bash
-claude plugin marketplace update usage-line
-claude plugin update usage-line@usage-line
-```
+1. Refresh the marketplace, so Claude Code sees the repository's new commits:
 
-Then type `/reload-plugins` in any open session, or restart it. `claude plugin list` shows the version you have.
+   ```bash
+   claude plugin marketplace update usage-line
+   ```
+
+2. Install the new version:
+
+   ```bash
+   claude plugin update usage-line@usage-line
+   ```
+
+3. Type `/reload-plugins` in any open session, or restart it, to load it.
+
+Run step 1 first: without it, step 2 may report that you're already up to date. `claude plugin list` shows the version you have.
 
 ## Change the limits
 
